@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CityPicker</title>
+</head>
+<body>
+<script>
+    let dates;
+    let db;
+    let request = window.indexedDB.open("Cities", 1);
+    request.onerror = function (event) {
+    };
+    request.onsuccess = function (event) {
+        db = event.target.result; //crea la varialbe db de forma global
+    };
+    request.onupgradeneeded = function (event) {
+        (async function () {
+            db = event.target.result;
+            let objectStore = db.createObjectStore("City", {keyPath: "name"});//CREA TABLAS
+            objectStore.createIndex("cities", "cities", {unique: false});//CREA EL INDEX
+
+            let response = await fetch('https://raw.githubusercontent.com/David-Haim/CountriesToCitiesJSON/master/countriesToCities.json');
+            dates = await response.json();
+            let countries = Object.keys(dates);
+            let cities = [];
+            let allCities = [];
+            for (let elem in dates) cities.push(dates[elem]);
+            for (let i = 0; i < cities.length; i++) {
+                for (let j = 0; j <cities[i].length ; j++) {
+                   allCities.push(cities[i][j])
+                }
+            }
+            console.log(allCities);
+            let i = 0;
+            let countriesAndCities = countries.map(function (country) {
+                country = {
+                    name: country,
+                    cities: cities[i]
+                };
+                i++;
+                return country
+            });
+            //objectStore.transaction.oncomplete = function(event) {
+                let insertCities = db.transaction("City", "readwrite").objectStore("City");
+                countriesAndCities.forEach(function (city) {
+                    insertCities.add(city);
+                });
+            //}
+        })();
+    }
+</script>
+</body>
+</html>
