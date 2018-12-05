@@ -3,52 +3,129 @@
 <head>
     <meta charset="UTF-8">
     <title>CityPicker</title>
+    <link rel="stylesheet" type="text/css" href="style.css">
 </head>
 <body>
+<form>
+    <input type="text" id="input" pattern=".{3,}" placeholder="3 letras minimo" required>
+    <button type="button" id="search" disabled>Buscar</button>
+</form>
+<ul></ul>
 <script>
     let dates;
     let db;
-    let request = window.indexedDB.open("Cities", 1);
-    request.onerror = function (event) {
+    let request = window.indexedDB.open("Cities", 1);//CREA LA BASE DE DATOS
+
+    request.onerror = function () {
+        console.log("error")
     };
     request.onsuccess = function (event) {
         db = event.target.result; //crea la varialbe db de forma global
     };
-    request.onupgradeneeded = function (event) {
-        (async function () {
-            db = event.target.result;
-            let objectStore = db.createObjectStore("City", {keyPath: "name"});//CREA TABLAS
-            objectStore.createIndex("cities", "cities", {unique: false});//CREA EL INDEX
 
-            let response = await fetch('https://raw.githubusercontent.com/David-Haim/CountriesToCitiesJSON/master/countriesToCities.json');
-            dates = await response.json();
-            let countries = Object.keys(dates);
-            let cities = [];
-            let allCities = [];
-            for (let elem in dates) cities.push(dates[elem]);
-            for (let i = 0; i < cities.length; i++) {
-                for (let j = 0; j <cities[i].length ; j++) {
-                   allCities.push(cities[i][j])
-                }
+
+    /*ACTUALIZACION DE LA BASE DE DATOS*/
+
+    request.onupgradeneeded = async function (event) {
+        db = event.target.result;
+        let tablaCiudades;
+        if (!db.objectStoreNames.contains('City')) {
+            tablaCiudades = db.createObjectStore("City", {keyPath: "name"});//CREA TABLAS
+            tablaCiudades.createIndex("cities", "name", {unique: false});//CREA EL INDEX
+        } else {
+            await db.deleteObjectStore('City');//BORRA LA TABLA SI EXISTE
+            tablaCiudades = db.createObjectStore("City", {keyPath: "name"});//CREA TABLAS
+            tablaCiudades.createIndex("cities", "name", {unique: false});//CREA EL INDEX
+        }
+
+        let response = await fetch('https://raw.githubusercontent.com/David-Haim/CountriesToCitiesJSON/master/countriesToCities.json');
+        dates = await response.json();
+
+
+        /*ARRAY MULTIDIMENSIONAL CON EL NOMBRE DE LAS CIUDADES SEPARADAS POR PAISES*/
+
+        let cities = [];
+        for (let atrib in dates) {
+            if (dates.hasOwnProperty(atrib)) {
+                cities.push(dates[atrib]);
             }
-            console.log(allCities);
-            let i = 0;
-            let countriesAndCities = countries.map(function (country) {
-                country = {
-                    name: country,
-                    cities: cities[i]
-                };
-                i++;
-                return country
+        }
+
+
+        /*ARRAY CON ARRAYS QUE CONTIENEN OBJETOS CON ATRIBUTO PAIS Y NOMBRE DE CIUDAD*/
+
+        let countries = Object.keys(dates);
+        let countryArrayCities = cities.map(function (array, i) {
+            return array.map(function (ciudad) {
+                return {
+                    country: countries[i],
+                    name: ciudad
+                }
             });
-            //objectStore.transaction.oncomplete = function(event) {
-                let insertCities = db.transaction("City", "readwrite").objectStore("City");
-                countriesAndCities.forEach(function (city) {
-                    insertCities.add(city);
-                });
-            //}
-        })();
-    }
+        });
+
+
+        /*TRANSFORMA EL ARRAY MULTIDIMENSIONAL EN UN ARRAY*/
+
+        let forInsert = [].concat.apply([], countryArrayCities);
+
+
+        /*ELIMINA LOS OBJETOS REPETIDOS DEL ARRAY*/
+
+        let hash = {};
+        forInsert = forInsert.filter(function (current) {
+            let exists = !hash[current.name] || false;
+            hash[current.name] = true;
+            return exists;
+        });
+
+
+        /*INTRODUCCION DE DATOS*/
+
+        let insertCities = db.transaction("City", "readwrite");
+        insertCities.oncomplete = function () {
+            alert("All done!");
+        };
+
+        insertCities.onerror = function (event) {
+            // Don't forget to handle errors!
+        };
+
+        let objectStore = insertCities.objectStore("City");
+        forInsert.forEach(function (city) {
+            let request = objectStore.add(city);
+            request.onerror = function (event) {
+                console.log(event.srcElement.transaction.error) //<--ASI PODEMOS MANEJAR LOS ERRORES Y VER DONDE SUCEDEN
+            };
+        });
+    };
+
+
+    /*RECUPERA EL ESTADO DE LA WEB*/
+
+    window.addEventListener('popstate', e => {
+        if (e.state !== null) {
+            document.querySelector('ul').innerHTML = "";
+            let list = e.state;
+
+            document.querySelector('input').value = list.value;
+
+            list.forEach(function (value, i) {
+                let pos = value.indexOf(list.value);
+                let valueUpper = list.value.charAt(0).toUpperCase() + list.value.slice(1);
+                let posB = value.indexOf(valueUpper);
+                if (i % 2 === 0) {
+                    document.querySelector('ul').innerHTML += '<li>' + value + '</li>'
+                } else if (pos !== -1 && posB === -1) {
+                    let split = value.split(list.value, list.value.length);
+                    document.querySelector('ul').innerHTML += '<li>' + split[0] + '<span>' + list.value + '</span>' + split[1] + '</li>'
+                } else if (pos === -1 && posB !== -1) {
+                    let split = value.split(valueUpper, list.value.length);
+                    document.querySelector('ul').innerHTML += '<li>' + split[0] + '<span>' + valueUpper + '</span>' + split[1] + '</li>'
+                }
+            })
+        }
+    })
 </script>
 </body>
 </html>
