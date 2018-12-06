@@ -20,7 +20,75 @@
         console.log("error")
     };
     request.onsuccess = function (event) {
-        db = event.target.result; //crea la varialbe db de forma global
+
+
+        /*HACE LA VARIABLE DE LA BASE DE DATOS GLOBAL*/
+
+        db = event.target.result;
+
+
+        /*ACTIVA O DESACTIVA EL BOTON*/
+
+        document.getElementById('input').addEventListener('input', function () {
+            document.getElementById('search').disabled = document.getElementById('input').value.length <= 2;
+        });
+
+
+        /*OBTIENE LOS DATOS DE INDEXEDDB*/
+
+        document.getElementById('search').addEventListener('click', async function () {
+            let transaction = db.transaction(["City"], "readwrite");
+            let value = document.getElementById('input').value;
+            let objectStore = transaction.objectStore("City");
+            let objectStoreRequest = await objectStore.getAll();
+            let result;
+            objectStoreRequest.onsuccess = function () {
+                let myRecord = objectStoreRequest.result;
+                result = myRecord.filter(result => {
+                    if (result.name.toLowerCase().includes(value.toLowerCase())) {
+                        return result
+                    }
+                });
+            };
+
+
+            /*SI CONSIGUE TODOS LOS DATOS SIN ERROR LOS PINTA EN PANTALLA*/
+
+            transaction.oncomplete = function () {
+                document.querySelector('ul').innerHTML = "";
+                if (result.length > 0) {
+                    result.forEach(function (res) {
+                        let pos = res.name.indexOf(value);
+                        let valueUpper = value.charAt(0).toUpperCase() + value.slice(1);
+                        let posB = res.name.indexOf(valueUpper);
+                        document.querySelector('ul').innerHTML += '<li>Pais: ' + res.country + '</li>';
+                        if (pos !== -1 && posB === -1) {
+                            let split = res.name.split(value, value.length);
+
+                            document.querySelector('ul').innerHTML += '<li>Ciudad: '
+                                + split[0] + '<span>' + value + '</span>' + split[1] + '</li>';
+                        } else if (pos === -1 && posB !== -1) {
+                            let split = res.name.split(valueUpper, value.length);
+                            document.querySelector('ul').innerHTML += '<li>Ciudad: '
+                                + split[0] + '<span>' + valueUpper + '</span>' + split[1] + '</li>';
+                        }
+                    });
+                } else document.querySelector('ul').innerHTML += '<li>No hay resultados</li>';
+
+
+                /* CREA UN ESTADO DE LA WEB*/
+
+                let stateObj = Array.from(document.querySelectorAll('li')); //CREA UN ARRAY CON LOS LI DE LA WEB
+                stateObj = stateObj.map(list => list.outerText); //TRANSFORMA LOS LI EN UN STRING
+                stateObj.value = value; //AÑADO UN ATRIBUTO NUEVO DONDE GUARDO EL VALUE DEL INPUT
+                history.pushState(stateObj, "", value); //GUARDO EL ESTADO DE LA WEB
+            };
+
+            transaction.onerror = function () {
+                document.querySelector('body').innerHTML += '<li>Transaction not opened due to error: '
+                    + transaction.error + '</li>';
+            };
+        });
     };
 
 
@@ -28,76 +96,75 @@
 
     request.onupgradeneeded = async function (event) {
         db = event.target.result;
-        let tablaCiudades;
-        if (!db.objectStoreNames.contains('City')) {
-            tablaCiudades = db.createObjectStore("City", {keyPath: "name"});//CREA TABLAS
-            tablaCiudades.createIndex("cities", "name", {unique: false});//CREA EL INDEX
-        } else {
-            await db.deleteObjectStore('City');//BORRA LA TABLA SI EXISTE
-            tablaCiudades = db.createObjectStore("City", {keyPath: "name"});//CREA TABLAS
-            tablaCiudades.createIndex("cities", "name", {unique: false});//CREA EL INDEX
+
+        if (event.oldVersion >= 1) {
+            db.deleteObjectStore('City');
         }
 
-        let response = await fetch('https://raw.githubusercontent.com/David-Haim/CountriesToCitiesJSON/master/countriesToCities.json');
-        dates = await response.json();
+        let objectStore = db.createObjectStore('City', {keyPath: "name"});//CREA LA TABLA
+        objectStore.createIndex("cities", "name", {unique: false});//CREA EL INDEX
+        objectStore.transaction.oncomplete = async function () {//CREA LA TRANSACCION Y AL TERMINAR EJECUTA EL CODIGO
+            let response = await fetch('https://raw.githubusercontent.com/David-Haim/CountriesToCitiesJSON/master/countriesToCities.json');
+            dates = await response.json();
 
 
-        /*ARRAY MULTIDIMENSIONAL CON EL NOMBRE DE LAS CIUDADES SEPARADAS POR PAISES*/
+            /*ARRAY MULTIDIMENSIONAL CON EL NOMBRE DE LAS CIUDADES SEPARADAS POR PAISES*/
 
-        let cities = [];
-        for (let atrib in dates) {
-            if (dates.hasOwnProperty(atrib)) {
-                cities.push(dates[atrib]);
-            }
-        }
-
-
-        /*ARRAY CON ARRAYS QUE CONTIENEN OBJETOS CON ATRIBUTO PAIS Y NOMBRE DE CIUDAD*/
-
-        let countries = Object.keys(dates);
-        let countryArrayCities = cities.map(function (array, i) {
-            return array.map(function (ciudad) {
-                return {
-                    country: countries[i],
-                    name: ciudad
+            let cities = [];
+            for (let atrib in dates) {
+                if (dates.hasOwnProperty(atrib)) {
+                    cities.push(dates[atrib]);
                 }
+            }
+
+
+            /*ARRAY CON ARRAYS QUE CONTIENEN OBJETOS CON ATRIBUTO PAIS Y NOMBRE DE CIUDAD*/
+
+            let countries = Object.keys(dates);
+            let countryArrayCities = cities.map(function (array, i) {
+                return array.map(function (ciudad) {
+                    return {
+                        country: countries[i],
+                        name: ciudad
+                    }
+                });
             });
-        });
 
 
-        /*TRANSFORMA EL ARRAY MULTIDIMENSIONAL EN UN ARRAY*/
+            /*TRANSFORMA EL ARRAY MULTIDIMENSIONAL EN UN ARRAY*/
 
-        let forInsert = [].concat.apply([], countryArrayCities);
-
-
-        /*ELIMINA LOS OBJETOS REPETIDOS DEL ARRAY*/
-
-        let hash = {};
-        forInsert = forInsert.filter(function (current) {
-            let exists = !hash[current.name] || false;
-            hash[current.name] = true;
-            return exists;
-        });
+            let forInsert = [].concat.apply([], countryArrayCities);
 
 
-        /*INTRODUCCION DE DATOS*/
+            /*ELIMINA LOS OBJETOS REPETIDOS DEL ARRAY*/
 
-        let insertCities = db.transaction("City", "readwrite");
-        insertCities.oncomplete = function () {
-            alert("All done!");
-        };
+            let hash = {};
+            forInsert = forInsert.filter(function (current) {
+                let exists = !hash[current.name] || false;
+                hash[current.name] = true;
+                return exists;
+            });
 
-        insertCities.onerror = function (event) {
-            // Don't forget to handle errors!
-        };
 
-        let objectStore = insertCities.objectStore("City");
-        forInsert.forEach(function (city) {
-            let request = objectStore.add(city);
-            request.onerror = function (event) {
-                console.log(event.srcElement.transaction.error) //<--ASI PODEMOS MANEJAR LOS ERRORES Y VER DONDE SUCEDEN
+            /*INTRODUCCION DE DATOS*/
+
+            let insertCities = db.transaction("City", "readwrite");
+            insertCities.oncomplete = function () {
+                alert("All done!");
             };
-        });
+
+            insertCities.onerror = function (event) {
+                // Don't forget to handle errors!
+            };
+
+            let objectStore = insertCities.objectStore("City");
+            forInsert.forEach(function (city) {
+                let request = objectStore.add(city);
+                request.onerror = function (event) {
+                    console.log(event.srcElement.transaction.error) //<--ASI PODEMOS MANEJAR LOS ERRORES Y VER DONDE SUCEDEN
+                };
+            });
+        };
     };
 
 
